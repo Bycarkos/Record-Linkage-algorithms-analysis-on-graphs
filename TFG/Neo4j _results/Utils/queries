@@ -1,0 +1,222 @@
+QUERIES
+
+
+CREATE NODE2VEC GRAPH
+
+//Node2Vec
+CALL gds.graph.create("value_emb_graph",["Value"], 
+{KIN: {orientation: "UNDIRECTED"},JOB: {orientation: "UNDIRECTED"},NAME: {orientation: "UNDIRECTED"},SURNAME: {orientation: "UNDIRECTED"},SECOND_SURNAME: {orientation: "UNDIRECTED"}});
+
+
+CALL gds.alpha.node2vec.write("value_emb_graph", {embeddingDimension: 64,writeProperty:"n2v_embedding"})
+YIELD nodePropertiesWritten, nodeCount
+RETURN nodePropertiesWritten, nodeCount
+
+
+
+//LIST IN MEMORY 
+
+CALL gds.graph.list()
+YIELD graphName, nodeCount, relationshipCount
+RETURN graphName, nodeCount, relationshipCount
+ORDER BY graphName ASC
+
+
+
+
+
+
+
+//GRAPH SAGE
+
+  
+
+---------------------------------------------------------------------------
+
+//Estructura de Create Train
+MATCH (nodes:Individual) where nodes.Location = "SFLL" and nodes.Year in [1889, 1906,1930,1936]
+MATCH (nodes)-[n:NAME]->(v1:Name)
+MATCH (nodes)-[sn:SURNAME]->(v2:Surname)
+MATCH (nodes)-[ss:SECOND_SURNAME]->(v3:Second_Surname)
+MATCH (nodes)-[sa:SAME_AS]->(SA:Individual) where (nodes.Year = 1889 and SA.Year = 1906 and SA.Location = "SFLL") 
+OR ( nodes.Year = 1930 and SA.Year = 1936 and SA.Location = "SFLL")
+
+CALL gds.graph.create("Experiment2",
+{
+    nodes:{
+        label:'Individual',
+        properties: ["Cohort"]
+    }, 
+    v: {
+        label: "Name",
+        properties: ["n2v_embedding"]
+    },
+    v2: {
+        label: "Surname",
+        properties: ["n2v_embedding"]
+    },
+    v3: {
+        label: "Second_Surname",
+        properties: ["n2v_embedding"]
+    }
+    //properties
+    },
+    
+    {
+    n:{
+        type: "NAME",
+        orientation: "UNDIRECTED"
+    },
+    sn:{
+        type: "SURNAME",
+        orientation: "UNDIRECTED"
+    },
+    ss:{
+        type: "SECOND_SURNAME",
+        orientation: "UNDIRECTED"
+    },
+    sa:{
+        type: "SAME_AS",
+        orientation: "UNDIRECTED"
+    }
+})
+YIELD
+  graphName, nodeProjection, nodeCount AS nod, relationshipCount AS rels
+RETURN graphName, nod, rels
+
+ 
+CALL gds.beta.graphSage.train(
+  'Experiment2',
+  {
+    modelName: 'Experiment2',
+    featureProperties: ['Cohort', 'n2v_embedding'],
+    projectedFeatureDimension: 65,
+    activationFunction: 'sigmoid',
+    randomSeed: 16,
+    searchDepth : 3,
+    aggregator: "pool",
+    sampleSizes: [25,10],
+    epochs: 30 ,
+    learningRate: 1e-4 
+  }
+)
+YIELD modelInfo as info, trainMillis as ms
+RETURN
+  info.modelName as modelName,
+  info.metrics.didConverge as didConverge,
+  info.metrics.ranEpochs as ranEpochs,
+  info.metrics.epochLosses as epochLosses,
+  ms
+
+  
+  
+  
+  
+  
+  // test queries
+
+  \\ Segon test mirant el mateix cognom pero amb els anys  
+  
+  	1910, 1915, 1924, 1930 (paper)
+  
+//DATASET A
+match (n:Individual) where n.Year in [1910,1924]
+set n.dataset = "A"
+
+//DATASET B
+match (n:Individual) where n.Year in [1915, 1930]
+set n.dataset = "B"
+
+
+
+//final per generar posibles pairs  
+match (n:Individual) where n.dataset is not null and n.dataset = "A"
+match (m:Individual) where m.dataset is not null and m.dataset = "B"
+match (c:Second_Surname)
+match (n)-[:SECOND_SURNAME]->(c)<-[:SECOND_SURNAME]-(m)
+Merge (n)-[:TEST_SAME_AS]-(m)
+
+
+\\\\\projection graph primer test 
+
+//Particio Test Experiment 1
+MATCH (nodes:Individual) where nodes.Location = "SFLL" and nodes.Year in [1910, 1915,1924,1930]
+MATCH (nodes)-[n:NAME]->(v1:Name)
+MATCH (nodes)-[sn:SURNAME]->(v2:Surname)
+MATCH (nodes)-[ss:SECOND_SURNAME]->(v3:Second_Surname)
+MATCH (nodes)-[sa:Candidate_Pairs]->(SA:Individual) where (nodes.Year = 1910 and SA.Year = 1915 and SA.Location = "SFLL") 
+OR ( nodes.Year = 1924 and SA.Year = 1930 and SA.Location = "SFLL")
+
+CALL gds.graph.create("test",
+{
+    nodes:{
+        label:'Individual'
+    }, 
+    v: {
+        label: "Name",
+        properties: ["n2v_embedding"]
+    },
+    v2: {
+        label: "Surname",
+        properties: ["n2v_embedding"]
+    },
+    v3: {
+        label: "Second_Surname",
+        properties: ["n2v_embedding"]
+    }
+    //properties
+    },
+    
+    {
+    n:{
+        type: "NAME",
+        orientation: "UNDIRECTED"
+    },
+    sn:{
+        type: "SURNAME",
+        orientation: "UNDIRECTED"
+    },
+    ss:{
+        type: "SECOND_SURNAME",
+        orientation: "UNDIRECTED"
+    },
+    sa:{
+        type: "Candidate_Pairs",
+        orientation: "UNDIRECTED"
+    }
+})
+
+YIELD
+  graphName, nodeProjection, nodeCount AS nod, relationshipCount AS rels
+RETURN graphName, nod, rels
+
+Call gds.beta.graphSage.write("test",{
+    modelName: "Experiment2",
+    writeProperty: "Experiment2"
+})
+
+
+
+
+\\NODE SIMILARITY
+CALL gds.nodeSimilarity.stream('test')
+YIELD node1, node2, similarity
+with gds.util.asNode(node1) as n1, gds.util.asNode(node2) as n2, similarity
+where (n1.Year = 1910 and n2.Year = 1915) OR (n1.Year = 1924 and n2.Year = 1930)
+match (n1)-[r:Candidate_Pairs]->(n2)
+RETURN n1._id AS Person1, n2._id AS Person2, similarity, r.class
+ORDER BY Person1
+
+
+
+
+
+// Utils
+
+match (n:Individual) where n.Year in [1889, 1906, 1930, 1936 ] and n.Location = "SFLL"
+match (n)-[N:NAME]->(na:Name)
+match (n)-[S:SURNAME]->(s:Surname)
+match (n)-[SS:SECOND_SURNAME]->(ss:Second_Surname)
+match (n)-[SaS:SAME_AS]->(m:Individual)
+
+return count(n)+count(na) + count(s) + count(ss) + count(m) as entity, count(N) + count(SS) +count(S) +count(SaS) as realations
