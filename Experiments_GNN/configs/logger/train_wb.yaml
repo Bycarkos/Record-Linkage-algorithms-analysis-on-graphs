@@ -1,0 +1,12 @@
+
+wb:
+  project: "Logistic_Message_Passing"
+  group: "Neurips"
+  entity: "neurips_project"
+  job_type: "train"
+  save_code: True
+  tags: [wn, train]
+
+
+
+    

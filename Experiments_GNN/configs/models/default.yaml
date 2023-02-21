@@ -1,0 +1,3 @@
+models:
+  graphSage: graphSage
+  m2vec: m2vec

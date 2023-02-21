@@ -1,0 +1,8 @@
+m2vec:
+  walk_length: 20
+  context_size: 10
+  walks_per_node: 8
+  num_negative_samples: 4
+  metapath: ???
+  num_nodes_dict: ???
+  embedding_dim: ???

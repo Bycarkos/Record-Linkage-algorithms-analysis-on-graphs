@@ -1,0 +1,5 @@
+dataset:
+  _target_: main.ball_graph
+  path: ${hydra:runtime.cwd}/Experiments_GNN/Bashkar
+
+version: Bashkar

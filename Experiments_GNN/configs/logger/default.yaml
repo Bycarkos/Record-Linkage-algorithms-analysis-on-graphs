@@ -1,0 +1,3 @@
+logger:
+  wb: train_wb
+  tracker: tracker

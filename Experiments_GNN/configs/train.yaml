@@ -1,0 +1,7 @@
+
+defaults:
+  - _self_
+  - data: ball
+  - setup: default
+  - models: [m2vec, graphSage]
+  - logger: tracker

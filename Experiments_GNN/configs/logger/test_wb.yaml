@@ -1,0 +1,8 @@
+wb:
+  project: "Logistic_Message_Passing"
+  group: "Neurips"
+  entity: "CVC"
+  job_type: "test"
+  tags: [wn, test]
+
+  
