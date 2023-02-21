@@ -1,63 +1,136 @@
 
 import torch
-import torch_geometric as tg
-import torch_geometric.data as tgd
-import torch_geometric.nn as tgf
-import torch.nn as nn 
-from torch_geometric.typing import Adj, OptTensor, Size
+from torch_geometric.nn import  SAGEConv
+import torch.nn.functional as F
 import numpy as np
 import pandas as pd
 from typing import *
 import sys
-import matplotlib.pyplot as plt
-import plotly.express as px
-import plotly.graph_objects as go
-import os 
-from pathlib import Path
 import abc
-
+import os
+import tqdm
 from torch_geometric.nn import MetaPath2Vec
+from utils import save_model
 
-
-
-class BaseModel(metaclass=abc.ABCMeta):
+    
+class M2Vec(torch.nn.Module):
+    
     def __init__(self, edge_index_dict, cfg):
-        """
-        Abstract class inherited by all models.
-
-        :param edge_index: Adj.
-        :param predicate_embeddings: (batch_size, predicate_embedding_size) Tensor.
-        """
+        super().__init__()
+        
         self.edge_index = edge_index_dict
         self.embeddgin_dimension = cfg.embedding_dim
-        self._model = None
-    
-    @abc.abstractmethod
-    def _get_loader(self):
-        raise NotImplementedError
-
-    
-class M2Vec(BaseModel):
-    
-    def __init__(self, edge_index_dict, cfg):
-        super().__init__(edge_index_dict, cfg=cfg)
-        
-        
-        self._model = MetaPath2Vec(edge_index_dict=edge_index_dict,**cfg)
+        self._device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        self._model = MetaPath2Vec(edge_index_dict=edge_index_dict,**cfg).to(self._device)
         
         
     def _get_loader(self, batch_size:int=64, shuffle: bool=True):
-        return self._model.loader(batch_size, shuffle)
+        return self._model.loader(batch_size=batch_size, shuffle=shuffle)
+    
+    def fit(self,optimizer: Callable,batch_size:int, epochs:int, epsilon:float=1e-2):
+        
+        self._model.train()
+        metapath_loader = self._get_loader(batch_size, shuffle=True)
+        losses = []
+        for epoch in tqdm.tqdm(range(epochs)):
+            total_loss = 0
+            for (pos_w, neg_w) in metapath_loader:
+                optimizer.zero_grad()
+                loss = self._model.loss(pos_w.to(self._device), neg_w.to(self._device))
+                
+                loss.backward()
+                optimizer.step()
+                
+                total_loss += loss.item()
+            
+            losses.append(total_loss)
+            
+            if epoch >= 10:
+                if np.std(np.array(losses[-5:])) < epsilon:
+                    save_model(self._model.state_dict, os.path.join(os.getcwd(), "model_save"),f"Model_{self.embeddgin_dimension}" )
+                    print("Loss not converged")
+                    return losses
+        
+        save_model(self._model.state_dict, os.path.join(os.getcwd(), "model_save"),f"Model_{self.embeddgin_dimension}" )
+        return losses
+                
+                
+                
+    def test(self, graph, batch_size:int= 32):
+        self._model.eval()
+        nodes = torch.tensor(list(graph['attribute'].nodes))
+        batches = torch.split(nodes, batch_size)
+        label_to_gt = {c.item():idx for idx,c in enumerate(graph["attribute"].type)}
+        gt = torch.tensor([label_to_gt[i.item()] for i in graph["attribute"].type])
+        acc = []
+        for n,g in zip(batches, gt):
+            z = self._model('attribute', batch=n).to(self._device)
+            
+            perm = torch.randperm(z.shape[0])
+            train_perm = perm[:int(z.shape[0] * 0.3)]
+            test_perm = perm[int(z.shape[0] * 0.3):]    
+            
+            acc.append(self._model.test(z[train_perm], g[train_perm], z[test_perm],
+                      g[test_perm], solver="newton-cg",max_iter=200))   
+                
+                
+        return np.mean(np.array(acc))
+                
+                
     
         
 class Graph_Sage_GNN(torch.nn.Module):
-    
-    def __init__(self, hidden_channels, out_channels, projection):
-        super().__init__()
-        self.conv1 = tgf.SAGEConv((-1, -1), hidden_channels, project=projection)
-        self.conv2 = tgf.SAGEConv((-1, -1), out_channels, project=projection)
+  """GraphSAGE"""
+  def __init__(self, cfg):
+    super().__init__()
+    self.sage1 = SAGEConv((-1,-1), cfg.hidden_channels)
+    self.sage2 = SAGEConv((-1,-1), cfg.out_channels)
+    self.optimizer = torch.optim.Adam(self.parameters(),
+                                      lr=0.01,
+                                      weight_decay=5e-4)
 
-    def forward(self, x, edge_index):
-        x = self.conv1(x, edge_index).relu()
-        x = self.conv2(x, edge_index)
-        return x
+    self._accuracy = lambda x,y: torch.sum(x==y)/x.shape[0]
+    
+    
+  def forward(self, x, edge_index):
+    h = self.sage1(x, edge_index)
+    h = torch.relu(h)
+    h = F.dropout(h, p=0.5, training=self.training)
+    h = self.sage2(h, edge_index)
+    return h, F.log_softmax(h, dim=1)
+
+  def fit(self, train_loader, epochs):
+    criterion = torch.nn.CrossEntropyLoss()
+    optimizer = self.optimizer
+
+    self.train()
+    for epoch in range(epochs+1):
+      acc = 0
+      val_loss = 0
+      val_acc = 0
+
+      # Train on batches
+      for batch in train_loader:
+        optimizer.zero_grad()
+        _, out = self(batch.x, batch.edge_index)
+        loss = criterion(out[batch.train_mask], batch.y[batch.train_mask])
+        acc += self._accuracy(out[batch.train_mask].argmax(dim=1), 
+                        batch.y[batch.train_mask])
+        loss.backward()
+        optimizer.step()
+
+        # Validation
+        val_loss += criterion(out[batch.val_mask], batch.y[batch.val_mask])
+        val_acc += self._accuracy(out[batch.val_mask].argmax(dim=1), 
+                            batch.y[batch.val_mask])
+
+      # Print metrics every 10 epochs
+      if(epoch % 10 == 0):
+          print(f'Epoch {epoch:>3} | Train Loss: {loss/len(train_loader):.3f} '
+                f'| Train Acc: {acc/len(train_loader)*100:>6.2f}% | Val Loss: '
+                f'{val_loss/len(train_loader):.2f} | Val Acc: '
+                f'{val_acc/len(train_loader)*100:.2f}%')
+    
+    
+if __name__ == "__main__":
+    m = Graph_Sage_GNN({"hidden_channels":120, "out_channels": 1, "projection":True})

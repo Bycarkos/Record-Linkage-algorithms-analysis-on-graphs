@@ -1,0 +1,30 @@
+data:
+  dataset:
+    _target_: main.ball_graph
+    path: ${hydra:runtime.cwd}/Experiments_GNN/Bashkar
+  version: Bashkar
+setup:
+  epochs: 100
+  embedding_size: 64
+  batch: 64
+  cuda: true
+  optimizer:
+    _target_: torch.optim.Adam
+    lr: 0.01
+    weight_decay: 5.0e-08
+models:
+  m2vec:
+    walk_length: 20
+    context_size: 10
+    walks_per_node: 8
+    num_negative_samples: 4
+    metapath: ???
+    num_nodes_dict: ???
+    embedding_dim: ???
+  graphSage:
+    hidden_channels: 128
+    out_channels: ???
+logger:
+  tracker:
+    _target_: main.AverageMetrics
+  name_file: test

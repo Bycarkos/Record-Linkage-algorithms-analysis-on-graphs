@@ -6,3 +6,8 @@ m2vec:
   metapath: ???
   num_nodes_dict: ???
   embedding_dim: ???
+
+m2v:
+  to_train: False
+  trained: True
+  version: 64

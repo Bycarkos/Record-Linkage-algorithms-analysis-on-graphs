@@ -33,26 +33,35 @@ def main(cfg:DictConfig):
     total_nodes = len(gr._nodes_to_idx)
 
     define_embeddings(graph=gr._graph, sample_size=len(gr._nodes_to_idx), feature_size=embedding_size)
-    
-    metapath = [('entity', 'kin', 'attribute'), ('entity', 'job', 'attribute'), ('entity', 'surname', 'attribute'), ('entity', 'name', 'attribute'), ('entity', 'same_as', 'entity')]
+
+    metapath = [tuple(['entity', 'kin', 'attribute']), tuple(['entity', 'job', 'attribute']), tuple(['entity', 'surname', 'attribute']), tuple(['entity', 'second_surname', 'attribute']) , tuple(['entity', 'name', 'attribute']), tuple(['entity', 'same_as', 'entity'])]
     cfg.models.m2vec["metapath"] = metapath
     cfg.models.m2vec["num_nodes_dict"] = {'entity': total_nodes , 'attribute': total_nodes}
     cfg.models.m2vec["embedding_dim"] = embedding_size
-    
+
+    cfg.models.graphSage["out_channels"] = embedding_size
     m2vec = M2Vec(edge_index_dict=gr.graph.edge_index_dict,cfg=cfg.models.m2vec) 
-    gnn = instantiate(cfg.models.graphSage, out_channels=embedding_size) 
+    gnn = Graph_Sage_GNN(cfg.models.graphSage) 
 
-
-    exit()
     if cuda:
         gnn.to("cuda")
-        m2vec.to("cuda")
+         #m2vec.to("cuda")
+
+    # Metapath to vec space
+    if cfg.models.m2v.to_train != False:
+        optimizer_m2v = instantiate(cfg.setup.optimizer, params=m2vec.parameters())      
+        losses_m2vec = m2vec.fit(optimizer=optimizer_m2v, batch_size=batch, epochs=epochs)
+
+    elif cfg.models.m2v.trained == True:
+        m2vec.load_state_dict(torch.load(os.path.join(os.getcwd(), "model_save",f"Model_{cfg.models.m2v.version}")))
+        acc_test_m2vec = m2vec.test(gr._graph, batch_size=batch)
+
+    exit()
 
     #loss
-    criterion = Logistic_loss(cfg.loss.losses)
+    criterion = torch.nn.BCELoss
 
     #optimizer
-    optimizer = instantiate(cfg.setup.optimizer, params=net.parameters())
     
     # weight and biases
 
