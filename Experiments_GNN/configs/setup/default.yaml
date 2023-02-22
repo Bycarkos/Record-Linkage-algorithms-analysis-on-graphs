@@ -2,8 +2,4 @@ epochs: 100
 embedding_size: 64
 batch: 64
 cuda: True
-optimizer:
-  _target_: torch.optim.Adam
-  lr: 1e-2
-  weight_decay: 5e-8
 

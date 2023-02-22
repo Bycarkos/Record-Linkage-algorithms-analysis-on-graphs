@@ -1,3 +1,8 @@
 graphSage:
   hidden_channels: 128
   out_channels: ???
+  optimizer:
+    _target_: torch.optim.Adam
+    params: ???
+    weight_decay: 5e-4
+    lr: 1e-3

@@ -1,4 +1,4 @@
-
+from hydra.utils import instantiate
 import torch
 from torch_geometric.nn import  SAGEConv
 import torch.nn.functional as F
@@ -11,7 +11,8 @@ import os
 import tqdm
 from torch_geometric.nn import MetaPath2Vec
 from utils import save_model
-from set_up import ROOT_DIR
+import warnings
+warnings.filterwarnings('ignore') 
     
 class M2Vec(torch.nn.Module):
     
@@ -63,33 +64,61 @@ class M2Vec(torch.nn.Module):
         label_to_gt_ent = {c:0 for c in (graph["entity"].nodes)}
         label_to_gt = {**label_to_gt_at, **label_to_gt_ent}
         gt = ([label_to_gt[i] for i in nodes])
-        # make the shuffeling
         
+        # make the shuffeling        
         nodes = torch.tensor(nodes).view(1,-1)
         gt = torch.tensor(gt).view(1,-1)
         
         to_test = torch.cat((nodes, gt), dim=0)
         perm = torch.randperm(to_test.shape[1])
         to_test = to_test[:, perm]
-
         ## fer la partició de manera adequada
-        batches = torch.split(to_test, batch_size)
-        exit()
-        gt_batches = torch.split(gt, batch_size)
+
+        batch_nodes = np.array_split(to_test[0,:].numpy(), batch_size)
+        gt_nodes = np.array_split(to_test[1,:].numpy(), batch_size)
+
         acc = []
-        for n,g in zip(batches, gt_batches):
-            z = self._model('attribute', batch=n.to(self._device)).to(self._device)
-            
+        for batch_n, batch_gt in zip(batch_nodes, gt_nodes):
+            # attributes
+            att = batch_n[batch_gt == 1]
+            z_att = self._model('attribute', batch=torch.tensor(att).to(self._device)).to(self._device)
+            #entities
+            ind = batch_n[batch_gt == 0]
+            z_ind = self._model('entity', batch=torch.tensor(ind).to(self._device)).to(self._device)
+
+            #temporal matrix to create new one 
+            z = torch.zeros((batch_gt.shape[0], z_att.shape[1])).to(self._device)
+
+            z[batch_gt == 1] = z_att
+            z[batch_gt == 0] = z_ind
+
             perm = torch.randperm(z.shape[0])
             train_perm = perm[:int(z.shape[0] * 0.3)]
-            test_perm = perm[int(z.shape[0] * 0.3):]    
-            
-            acc.append(self._model.test(z[train_perm], g[train_perm], z[test_perm],
-                      g[test_perm], solver="newton-cg",max_iter=200))   
+            test_perm = perm[int(z.shape[0] * 0.3):]
+
+            batch_gt = torch.tensor(batch_gt).to(self._device)
+            acc.append(self._model.test(z[train_perm], batch_gt[train_perm], z[test_perm],
+                      batch_gt[test_perm], solver="newton-cg",max_iter=200))   
                 
                 
         return np.mean(np.array(acc))
-                
+    
+    def transform(self, graph, kind:str="attribute",batch_size:int= 32):
+        node_embeddings = graph.node_emb.to(self._device)
+
+        indexes = np.array(list(graph[kind].nodes))
+        np.random.shuffle(indexes)
+        batches = np.array_split(indexes, batch_size)
+
+        for batch in batches:
+           batch = torch.tensor(batch).to(self._device)
+           z = self._model(kind, batch=batch).to(self._device)
+           node_embeddings[batch] = z
+
+        return node_embeddings.cpu()
+
+           
+ 
                 
     
         
@@ -99,10 +128,8 @@ class Graph_Sage_GNN(torch.nn.Module):
     super().__init__()
     self.sage1 = SAGEConv((-1,-1), cfg.hidden_channels)
     self.sage2 = SAGEConv((-1,-1), cfg.out_channels)
-    self.optimizer = torch.optim.Adam(self.parameters(),
-                                      lr=0.01,
-                                      weight_decay=5e-4)
-
+    self.optimizer = instantiate(cfg.optimizer, params=self.parameters())
+    
     self._accuracy = lambda x,y: torch.sum(x==y)/x.shape[0]
     
     

@@ -3,3 +3,4 @@ dataset:
   path: ${hydra:runtime.cwd}/data/GraIL-BM_WN18RR_v3
 
 version: GraIL-BM_WN18RR_v3
+save: True
