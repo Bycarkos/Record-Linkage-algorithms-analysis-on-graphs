@@ -22,8 +22,8 @@ parser.add_argument('--sample_rate', '-s', type=int, default=3,
 
 args = parser.parse_args()
 
-f1 = open("data/{}/train/train.txt".format(args.dataset))
-f2 = open("data/{}/train/valid.txt".format(args.dataset))
+f1 = open("Experiments_GNN//Bashkar/dev.tsv")
+f2 = open("Experiments_GNN//Bashkar/test.tsv")
 
 triples_train_normal = []
 triples_train_type = []
@@ -150,11 +150,12 @@ for i in range(len(entities)):
                 
                 
 import random
-train_path = "data/{}/train/train-labeled.txt".format(args.dataset)
-valid_path = "data/{}/train/valid-labeled.txt".format(args.dataset)
+train_path = "Experiments_GNN/Bashkar/dev_labeled.tsv"
+valid_path = "Experiments_GNN/Bashkar/test_labeled.tsv"
 
 def generate(path, g_triples):
     count = 0
+    print(path)
     f3 = open(path, "w+")
     for triple in g_triples:
         h = triple[0]

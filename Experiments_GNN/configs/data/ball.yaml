@@ -3,3 +3,4 @@ dataset:
   path: ${hydra:runtime.cwd}/Experiments_GNN/Bashkar
 
 version: Bashkar
+save: True

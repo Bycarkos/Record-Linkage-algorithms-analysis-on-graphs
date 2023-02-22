@@ -6,6 +6,7 @@ from data.data_utils import batch_loader, define_embeddings
 from data.ball_graph import ball_graph
 from data.wordnet_graph import wordnet_graph
 from utils import *
+# in set up there is the ROOT DIR
 from set_up import *
 from models.defined_models import *
 
@@ -14,6 +15,7 @@ import time
 from termcolor import colored
 import numpy as np
 import os
+import pickle
 
 
 @hydra.main(config_path="./configs", config_name="train", version_base="1.1")
@@ -21,17 +23,24 @@ def main(cfg:DictConfig):
 
     print(cfg)
     # init dataset
-    embedding_size = cfg.setup.embedding_size
-
-    gr = instantiate(cfg.data.dataset)
-    #init params and dataset to setup model
+    name_graph = cfg.data.dataset["_target_"].split(".")[1]    
+    if cfg.data.save == True:
+        gr = instantiate(cfg.data.dataset)
+        to_save = gr
+        with open(os.path.join(ROOT_DIR, "Bashkar", name_graph), "wb") as handle:
+            pickle.dump(to_save, handle, protocol=pickle.HIGHEST_PROTOCOL)
+        
+    else:
+        with open(os.path.join(ROOT_DIR, "Bashkar", name_graph), "rb") as handle:
+            gr=pickle.load(handle)   
+            
+    #init params and dataset to setup model        
     cuda = cfg.setup.cuda
     epochs = cfg.setup.epochs
     embedding_size = cfg.setup.embedding_size
     batch = cfg.setup.batch
-    edge_types = len(gr._r_set)
+    edge_types = len(gr._r_to_idx)
     total_nodes = len(gr._nodes_to_idx)
-
     define_embeddings(graph=gr._graph, sample_size=len(gr._nodes_to_idx), feature_size=embedding_size)
 
     metapath = [tuple(['entity', 'kin', 'attribute']), tuple(['entity', 'job', 'attribute']), tuple(['entity', 'surname', 'attribute']), tuple(['entity', 'second_surname', 'attribute']) , tuple(['entity', 'name', 'attribute']), tuple(['entity', 'same_as', 'entity'])]
@@ -49,12 +58,14 @@ def main(cfg:DictConfig):
 
     # Metapath to vec space
     if cfg.models.m2v.to_train != False:
-        optimizer_m2v = instantiate(cfg.setup.optimizer, params=m2vec.parameters())      
+        optimizer_m2v = instantiate(cfg.setup.optimizer, params=m2vec._model.parameters())
         losses_m2vec = m2vec.fit(optimizer=optimizer_m2v, batch_size=batch, epochs=epochs)
+        save_model(m2vec._model.state_dict, os.path.join(ROOT_DIR, "model_save"),f"Model_{embedding_size}" )      
 
     elif cfg.models.m2v.trained == True:
-        m2vec.load_state_dict(torch.load(os.path.join(os.getcwd(), "model_save",f"Model_{cfg.models.m2v.version}")))
+        m2vec._model.load_state_dict(torch.load(os.path.join(ROOT_DIR, "model_save",f"Model_{embedding_size}")))
         acc_test_m2vec = m2vec.test(gr._graph, batch_size=batch)
+        print(acc_test_m2vec)
 
     exit()
 

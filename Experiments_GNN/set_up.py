@@ -9,7 +9,7 @@ from colorama import Fore
 import os
 
 
-
+ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 colors = {"DEBUG":Fore.BLUE, "INFO":Fore.CYAN,
           "WARNING":Fore.YELLOW, "ERROR":Fore.RED, "CRITICAL":Fore.MAGENTA}

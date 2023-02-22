@@ -11,7 +11,7 @@ import os
 import tqdm
 from torch_geometric.nn import MetaPath2Vec
 from utils import save_model
-
+from set_up import ROOT_DIR
     
 class M2Vec(torch.nn.Module):
     
@@ -47,24 +47,38 @@ class M2Vec(torch.nn.Module):
             
             if epoch >= 10:
                 if np.std(np.array(losses[-5:])) < epsilon:
-                    save_model(self._model.state_dict, os.path.join(os.getcwd(), "model_save"),f"Model_{self.embeddgin_dimension}" )
                     print("Loss not converged")
                     return losses
         
-        save_model(self._model.state_dict, os.path.join(os.getcwd(), "model_save"),f"Model_{self.embeddgin_dimension}" )
         return losses
                 
                 
                 
     def test(self, graph, batch_size:int= 32):
         self._model.eval()
-        nodes = torch.tensor(list(graph['attribute'].nodes))
-        batches = torch.split(nodes, batch_size)
-        label_to_gt = {c.item():idx for idx,c in enumerate(graph["attribute"].type)}
-        gt = torch.tensor([label_to_gt[i.item()] for i in graph["attribute"].type])
+        
+        #Information to test
+        nodes = (list(graph['attribute'].nodes.union(graph['entity'].nodes)))
+        label_to_gt_at = {c:1 for c in (graph["attribute"].nodes)}
+        label_to_gt_ent = {c:0 for c in (graph["entity"].nodes)}
+        label_to_gt = {**label_to_gt_at, **label_to_gt_ent}
+        gt = ([label_to_gt[i] for i in nodes])
+        # make the shuffeling
+        
+        nodes = torch.tensor(nodes).view(1,-1)
+        gt = torch.tensor(gt).view(1,-1)
+        
+        to_test = torch.cat((nodes, gt), dim=0)
+        perm = torch.randperm(to_test.shape[1])
+        to_test = to_test[:, perm]
+
+        ## fer la partició de manera adequada
+        batches = torch.split(to_test, batch_size)
+        exit()
+        gt_batches = torch.split(gt, batch_size)
         acc = []
-        for n,g in zip(batches, gt):
-            z = self._model('attribute', batch=n).to(self._device)
+        for n,g in zip(batches, gt_batches):
+            z = self._model('attribute', batch=n.to(self._device)).to(self._device)
             
             perm = torch.randperm(z.shape[0])
             train_perm = perm[:int(z.shape[0] * 0.3)]
