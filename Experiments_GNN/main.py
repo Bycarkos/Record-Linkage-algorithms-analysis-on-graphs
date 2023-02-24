@@ -8,7 +8,10 @@ from data.wordnet_graph import wordnet_graph
 from utils import *
 # in set up there is the ROOT DIR
 from set_up import *
+
+from torch_geometric.loader import NeighborLoader
 from models.defined_models import *
+from Experiments import Experiment_1, Experiment_2
 
 import tqdm
 import time
@@ -29,14 +32,11 @@ def main(cfg:DictConfig):
     # init dataset
     name_graph = cfg.data.dataset["_target_"].split(".")[1]    
     if cfg.data.save == True:
-        with torch.autograd.profiler.profile(use_cuda=True) as prof:
 
-            gr = instantiate(cfg.data.dataset)
-            to_save = gr
-            with open(os.path.join(ROOT_DIR, "Bashkar", name_graph), "wb") as handle:
-                pickle.dump(to_save, handle, protocol=pickle.HIGHEST_PROTOCOL)
-        print(f"time elapsed creating the dataset")
-        print(prof)
+        gr = instantiate(cfg.data.dataset)
+        to_save = gr
+        with open(os.path.join(ROOT_DIR, "Bashkar", name_graph), "wb") as handle:
+            pickle.dump(to_save, handle, protocol=pickle.HIGHEST_PROTOCOL)
     else:
         with open(os.path.join(ROOT_DIR, "Bashkar", name_graph), "rb") as handle:
             gr=pickle.load(handle)   
@@ -59,24 +59,23 @@ def main(cfg:DictConfig):
     m2vec = M2Vec(edge_index_dict=gr.graph.edge_index_dict,cfg=cfg.models.m2vec) 
 
     # Metapath to vec space
-    with torch.autograd.profiler.profile(use_cuda=True,with_stack=True, profile_memory=True) as prof:
+    #with torch.autograd.profiler.profile(use_cuda=True,with_stack=True, profile_memory=True) as prof:
 
-        if cfg.models.m2v.to_train != False:
-            optimizer_m2v = instantiate(cfg.setup.optimizer, params=m2vec._model.parameters())
-            losses_m2vec = m2vec.fit(optimizer=optimizer_m2v, batch_size=batch, epochs=epochs)
-            save_model(m2vec._model.state_dict, os.path.join(ROOT_DIR, "model_save"),f"Model_{embedding_size}" )      
+    if cfg.models.m2v.to_train != False:
+        optimizer_m2v = instantiate(cfg.setup.optimizer, params=m2vec._model.parameters())
+        losses_m2vec = m2vec.fit(optimizer=optimizer_m2v, batch_size=batch, epochs=epochs)
+        save_model(m2vec._model.state_dict, os.path.join(ROOT_DIR, "model_save"),f"Model_{embedding_size}" )      
 
-        elif cfg.models.m2v.trained == True:
-            m2vec._model.load_state_dict(torch.load(os.path.join(ROOT_DIR, "model_save",f"Model_{embedding_size}")))
-        
-        # Testing between entity and attribute    
-        acc_test_m2vec = m2vec.test(gr._graph, batch_size=batch)
-        print(acc_test_m2vec)
-        new_node_emb = m2vec.transform(gr._graph, batch_size=embedding_size)
-        gr.graph.node_emb = new_node_emb
+    elif cfg.models.m2v.trained == True:
+        m2vec._model.load_state_dict(torch.load(os.path.join(ROOT_DIR, "model_save",f"Model_{embedding_size}")))
+    
+    # Testing between entity and attribute    
+    acc_test_m2vec = m2vec.test(gr._graph, batch_size=batch)
+    print(acc_test_m2vec)
+    new_node_emb = m2vec.transform(gr._graph, batch_size=embedding_size)
+    gr.graph.node_emb = new_node_emb
 
     ## Starting Graph Sage Block
-    
     #loss
     criterion = torch.nn.BCELoss()
 
@@ -85,20 +84,10 @@ def main(cfg:DictConfig):
 
     if cuda:gnn.to("cuda")
 
-    print(gr.graph.edge_type_subgraph(("entity", "name", "attribute")))
-    exit()
-    
-    for epoch in tqdm.tqdm(range(epochs)):
+    graph_to_train = instantiate(cfg.models.graphSage.Experiment, data_object=gr).get_subgraph()
+    graph_to_train.x = graph_to_train.node_emb
 
-        pass
-
-    print(colored(f"Saving Model", "red"))
-    save_model(gnn.state_dict, os.path.join(os.getcwd(), "model_save"), f"Model_Sage_{embedding_size}")       
-    print(colored(f"TEST", "red"))
-    np.random.shuffle(bl_test)
-    test(x=gr.graph.node_emb , data_loader=bl_test, net=net, cuda=cuda, criterion=criterion, wdb=wb, epoch=epoch)
-
- 
+    print(graph_to_train)
 
 
 if __name__ == "__main__":

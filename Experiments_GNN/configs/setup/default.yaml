@@ -2,4 +2,3 @@ epochs: 100
 embedding_size: 64
 batch: 64
 cuda: True
-

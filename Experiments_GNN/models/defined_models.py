@@ -1,6 +1,6 @@
 from hydra.utils import instantiate
 import torch
-from torch_geometric.nn import  SAGEConv
+from torch_geometric.nn import  SAGEConv, HeteroConv, GATConv
 import torch.nn.functional as F
 import numpy as np
 import pandas as pd
@@ -126,6 +126,8 @@ class Graph_Sage_GNN(torch.nn.Module):
   """GraphSAGE"""
   def __init__(self, cfg):
     super().__init__()
+
+    self._device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")    
     self.sage1 = SAGEConv((-1,-1), cfg.hidden_channels)
     self.sage2 = SAGEConv((-1,-1), cfg.out_channels)
     self.optimizer = instantiate(cfg.optimizer, params=self.parameters())
@@ -134,6 +136,8 @@ class Graph_Sage_GNN(torch.nn.Module):
     
     
   def forward(self, x, edge_index):
+    x = x.to(self._device)
+    edge_index = edge_index.to(self._device)
     h = self.sage1(x, edge_index)
     h = torch.relu(h)
     h = F.dropout(h, p=0.5, training=self.training)

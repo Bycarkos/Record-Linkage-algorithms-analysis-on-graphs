@@ -31,6 +31,7 @@ class ball_graph(Graph):
 
         era = {"name", "second_surname", "surname", "kin", "job"}
         ere = (self._r_set - era)
+        
         #ERAs
         self._era_graph = self._map_edges(partition="all", subgraph=era)  
         self._train_era_graph = self._map_edges(partition="train", subgraph=era)
@@ -64,7 +65,7 @@ class ball_graph(Graph):
 
         # Creating the masks for the EREs
         self._make_subgraph_partition(edge_structure=self._train_ere_graph, subgraph="ere" , partition="train")
-        self._make_subgraph_partition(edge_structure=self._test_ere_graph, subgraph="era", partition="test")
+        self._make_subgraph_partition(edge_structure=self._test_ere_graph, subgraph="ere", partition="test")
 
 
     def _fill_graph(self,edge_structure: Dict[Tuple[str,str,str], List[int,]],subgraph:str) -> None:
@@ -79,9 +80,10 @@ class ball_graph(Graph):
         nd_type = trg
         attributes = set({})
         
+        
         for e_idx, _ , trgts, edge_type,nodes in self._generate_adjency(edge_structure):
-              
             self._graph[f"{src}", edge_type, f"{trg}"].edge_index = e_idx
+            
             self._graph[f"{src}", edge_type, f"{trg}"].label = edge_type      
             self._graph[f"{src}", edge_type, f"{trg}"].type = self._r_to_idx[edge_type]
             attributes = attributes.union(nodes) if src == trg else attributes.union(set(trgts.view(-1).numpy()))
@@ -99,6 +101,7 @@ class ball_graph(Graph):
            src, trg = "entity", "entity"
         else:
             raise AssertionError
+        
 
         for e_idx, _,_, edge_type, _ in self._generate_adjency(edge_structure):
     

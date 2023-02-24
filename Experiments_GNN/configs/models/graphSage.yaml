@@ -6,3 +6,7 @@ graphSage:
     params: ???
     weight_decay: 5e-4
     lr: 1e-3
+
+  Experiment:
+    _target_: main.Experiment_1
+    data_object: ???
