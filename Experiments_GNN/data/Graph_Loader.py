@@ -22,8 +22,8 @@ class Graph(ABC):
     def init_attributes(self):
 
         self._all_triples = self._train_graph+self._test_graph
-
-
+        self._all_link_gt = self._train_link_gt + self._test_link_gt + self._candidate_link_gt
+        
         ### partition set nodes
         self._train_node_set = {s for (s, p, o) in self._train_graph} | {o for (s, p, o) in self._train_graph}
         self._test_node_set = {s for (s, p, o) in self._test_graph} | {o for (s, p, o) in self._test_graph}

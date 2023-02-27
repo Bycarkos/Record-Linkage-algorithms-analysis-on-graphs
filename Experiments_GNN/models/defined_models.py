@@ -1,4 +1,5 @@
 from hydra.utils import instantiate
+import torch.nn as nn 
 import torch
 from torch_geometric.nn import  SAGEConv, HeteroConv, GATConv
 import torch.nn.functional as F
@@ -10,7 +11,7 @@ import abc
 import os
 import tqdm
 from torch_geometric.nn import MetaPath2Vec
-from utils import save_model
+from utils import *
 import warnings
 warnings.filterwarnings('ignore') 
     
@@ -123,59 +124,50 @@ class M2Vec(torch.nn.Module):
     
         
 class Graph_Sage_GNN(torch.nn.Module):
-  """GraphSAGE"""
-  def __init__(self, cfg):
-    super().__init__()
+    """GraphSAGE"""
+    def __init__(self, cfg):
+        super().__init__()
 
-    self._device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")    
-    self.sage1 = SAGEConv((-1,-1), cfg.hidden_channels)
-    self.sage2 = SAGEConv((-1,-1), cfg.out_channels)
-    self.optimizer = instantiate(cfg.optimizer, params=self.parameters())
+        self._device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")    
+        self.sage1 = SAGEConv((-1,-1), cfg.hidden_channels)
+        self.sage2 = SAGEConv((-1,-1), cfg.out_channels)
+
+        self._accuracy = lambda x,y: torch.sum(x==y)/x.shape[0]
+
+        self._cosinus = torch.nn.CosineSimilarity(dim=1)
+
+        self._layer = nn.Linear(in_features=cfg.out_channels*2, out_features=1)
+        self._layer_norm = nn.LayerNorm(cfg.out_channels)
+        self._sigmoide = nn.Sigmoid()
+
+
+    def encode(self, x, edge_index):
+        h = self.sage1(x, edge_index)
+        h = torch.relu(h)
+        h = F.dropout(h, p=0.5)
+        h = self.sage2(h, edge_index)
+        h= torch.relu(h)
+
+        return self._layer_norm(h)#, self._sigmoide(self._cosinus(t1,t2))
     
-    self._accuracy = lambda x,y: torch.sum(x==y)/x.shape[0]
+    def decode(self, x, edge_index):
+        
+        h_final = torch.cat((torch.index_select(x, 0,edge_index[0]),torch.index_select(x, 0,edge_index[1])), dim=1)
+
+        return self._sigmoide(self._layer(h_final))
+       
+
+    def forward(self, x, edge_index):
+        h = self.encode(x=x, edge_index=edge_index)
+        new_h = self.decode(x=h, edge_index=edge_index) 
+
+
+    #h1 = torch.index_select()#h[edge_index[0]].detach()
+    #h2 = #h[edge_index[1]].detach()
+
+        return h, new_h#, self._sigmoide(self._cosinus(t1,t2))
+
+
+
+
     
-    
-  def forward(self, x, edge_index):
-    x = x.to(self._device)
-    edge_index = edge_index.to(self._device)
-    h = self.sage1(x, edge_index)
-    h = torch.relu(h)
-    h = F.dropout(h, p=0.5, training=self.training)
-    h = self.sage2(h, edge_index)
-    return h, F.log_softmax(h, dim=1)
-
-  def fit(self, train_loader, epochs):
-    criterion = torch.nn.CrossEntropyLoss()
-    optimizer = self.optimizer
-
-    self.train()
-    for epoch in range(epochs+1):
-      acc = 0
-      val_loss = 0
-      val_acc = 0
-
-      # Train on batches
-      for batch in train_loader:
-        optimizer.zero_grad()
-        _, out = self(batch.x, batch.edge_index)
-        loss = criterion(out[batch.train_mask], batch.y[batch.train_mask])
-        acc += self._accuracy(out[batch.train_mask].argmax(dim=1), 
-                        batch.y[batch.train_mask])
-        loss.backward()
-        optimizer.step()
-
-        # Validation
-        val_loss += criterion(out[batch.val_mask], batch.y[batch.val_mask])
-        val_acc += self._accuracy(out[batch.val_mask].argmax(dim=1), 
-                            batch.y[batch.val_mask])
-
-      # Print metrics every 10 epochs
-      if(epoch % 10 == 0):
-          print(f'Epoch {epoch:>3} | Train Loss: {loss/len(train_loader):.3f} '
-                f'| Train Acc: {acc/len(train_loader)*100:>6.2f}% | Val Loss: '
-                f'{val_loss/len(train_loader):.2f} | Val Acc: '
-                f'{val_acc/len(train_loader)*100:.2f}%')
-    
-    
-if __name__ == "__main__":
-    m = Graph_Sage_GNN({"hidden_channels":120, "out_channels": 1, "projection":True})

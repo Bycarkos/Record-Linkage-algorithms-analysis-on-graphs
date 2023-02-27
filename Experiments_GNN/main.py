@@ -8,8 +8,8 @@ from data.wordnet_graph import wordnet_graph
 from utils import *
 # in set up there is the ROOT DIR
 from set_up import *
+from train import fit 
 
-from torch_geometric.loader import NeighborLoader
 from models.defined_models import *
 from Experiments import Experiment_1, Experiment_2
 
@@ -77,17 +77,28 @@ def main(cfg:DictConfig):
 
     ## Starting Graph Sage Block
     #loss
-    criterion = torch.nn.BCELoss()
+    criterion_BCE = torch.nn.BCELoss()
+    criterion_CE = torch.nn.CrossEntropyLoss()
 
     #optimizer
     gnn = Graph_Sage_GNN(cfg.models.graphSage) 
+    optimizer = instantiate(cfg.setup.optimizer, params=gnn.parameters())
+    
 
     if cuda:gnn.to("cuda")
 
-    graph_to_train = instantiate(cfg.models.graphSage.Experiment, data_object=gr).get_subgraph()
-    graph_to_train.x = graph_to_train.node_emb
-
-    print(graph_to_train)
+    graph_to_train = instantiate(cfg.models.graphSage.Experiment, data_object=gr).get_subgraph()    
+    bl_train, bl_test = batch_loader(graph_to_train, batch)
+    
+    # SOlucionar  el training del graph sage a ver que es lo que está pasando.
+    for epoch in tqdm.tqdm(range(epochs)):
+        h, acc, loss =  fit(x=gr.graph.node_emb, train_loader=bl_train, net=gnn, cuda=cuda, optimizer=optimizer, criterions=[criterion_BCE, criterion_CE])
+        graph_to_train.node_emb = h
+    # Print metrics every 10 epochs
+        if(epoch % 10 == 0):
+            print(f'Epoch {epoch:>3} | Train Loss: {loss/len(bl_train):.3f} '
+                    f'| Train Acc: {acc/len(bl_train)*100:>6.2f}%')
+          
 
 
 if __name__ == "__main__":

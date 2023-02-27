@@ -54,35 +54,22 @@ def batch_loader(graph, batch_size_proportion:int=16) -> List[Tuple[int,int,int]
         adj_train = edge.get("train_edge_index", None)    
         gt_link_train = edge.get("train_link_gt", None)
         gt_class_train = edge.get("train_types", None)
-        gate_train = torch.full_like(gt_class_train, fill_value=1)
         
         if adj_train is not None:
-            train_mix_edges.extend(zip(adj_train[0].numpy(), adj_train[1].numpy(), gt_class_train.view(-1).numpy(), gt_link_train.view(-1).numpy(), gate_train.view(-1).numpy()))       
-        
-        #val_loader
-        adj_val = edge.get("val_edge_index", None)               
-        gt_link_val = edge.get("val_link_gt", None)
-        gt_class_val = edge.get("val_types", None)
-        gate_val = torch.full_like(gt_class_val, fill_value=-1)      
-        
-        if adj_val is not None:
-            val_mix_edges.extend(zip(adj_val[0].numpy(), adj_val[1].numpy(), gt_class_val.view(-1).numpy(), gt_link_val.view(-1).numpy(), gate_val.view(-1).numpy()))       
-            
-        
+            train_mix_edges.extend(zip(adj_train[0].numpy(), adj_train[1].numpy(), gt_class_train.view(-1).numpy(), gt_link_train.view(-1).numpy()))       
+         
         #test_loader
-        adj_test = edge.get("test_edge_index", None)               
+        adj_test = edge.get("test_edge_index", None)         
         gt_link_test = edge.get("test_link_gt", None)
         gt_class_test = edge.get("test_types", None)
-        gate_test = torch.full_like(gt_class_test, fill_value=-1)
+        
         
         if adj_test is not None:
-            test_mix_edges.extend(zip(adj_test[0].numpy(), adj_test[1].numpy(), gt_class_test.view(-1).numpy(), gt_link_test.view(-1).numpy(), gate_test.view(-1).numpy()))    
+            test_mix_edges.extend(zip(adj_test[0].numpy(), adj_test[1].numpy(), gt_class_test.view(-1).numpy(), gt_link_test.view(-1).numpy()))    
                         
     test_mix_edges = test_mix_edges + train_mix_edges
-    val_mix_edges = train_mix_edges + val_mix_edges 
     
     train_mix_edges = np.array(train_mix_edges)
-    val_mix_edges = np.array(val_mix_edges)   
     test_mix_edges = np.array(test_mix_edges)   
        
     np.random.seed(3) 
@@ -91,7 +78,7 @@ def batch_loader(graph, batch_size_proportion:int=16) -> List[Tuple[int,int,int]
     np.random.shuffle(test_mix_edges)   
 
     
-    return np.array_split(train_mix_edges, batch_size_proportion),np.array_split(val_mix_edges, batch_size_proportion),np.array_split(test_mix_edges, batch_size_proportion)
+    return np.array_split(train_mix_edges, batch_size_proportion), np.array_split(test_mix_edges, batch_size_proportion)
 
  
     

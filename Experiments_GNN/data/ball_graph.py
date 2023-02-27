@@ -20,11 +20,12 @@ class ball_graph(Graph):
 
         
 
-        self._train_graph = self.read_data(path=path+"/train.tsv")
-        self._test_graph = self.read_data(path=path+"/test.tsv")
+        self._train_graph, self._train_link_gt = self.read_data(path=path+"/train_labeled.tsv")
+        self._test_graph, self._test_link_gt = self.read_data(path=path+"/test.tsv")
 
-        self._candidate_pairs = self.read_data(path=path+"/Candidate_Pairs_Test.tsv")
+        self._candidate_pairs, self._candidate_link_gt = self.read_data(path=path+"/Candidate_Pairs_Test.tsv")
 
+        self._test_graph = self._test_graph + self._candidate_pairs
        ## Init all attributes to get the stats of the graph
         super().init_attributes()
 
@@ -81,11 +82,14 @@ class ball_graph(Graph):
         attributes = set({})
         
         
-        for e_idx, _ , trgts, edge_type,nodes in self._generate_adjency(edge_structure):
-            self._graph[f"{src}", edge_type, f"{trg}"].edge_index = e_idx
+        for e_idx, _ , trgts, edge_type,nodes, gts in self._generate_adjency(edge_structure):
             
+            types = torch.full_like(gts,1) & gts
+            self._graph[f"{src}", edge_type, f"{trg}"].edge_index = e_idx
             self._graph[f"{src}", edge_type, f"{trg}"].label = edge_type      
-            self._graph[f"{src}", edge_type, f"{trg}"].type = self._r_to_idx[edge_type]
+            self._graph[f"{src}", edge_type, f"{trg}"].type = torch.where(types == 1, self._r_to_idx[edge_type], len(self._r_set))
+            self._graph[f"{src}", edge_type, f"{trg}"].gt = gts
+
             attributes = attributes.union(nodes) if src == trg else attributes.union(set(trgts.view(-1).numpy()))
 
         self._graph[nd_type].nodes = attributes
@@ -103,12 +107,18 @@ class ball_graph(Graph):
             raise AssertionError
         
 
-        for e_idx, _,_, edge_type, _ in self._generate_adjency(edge_structure):
-    
+        for e_idx, _,_, edge_type, _, gts in self._generate_adjency(edge_structure):
+            types = torch.full_like(gts,1) & gts    
             if partition == "train":
                 self._graph[f"{src}", edge_type, f"{trg}"].train_edge_index = e_idx
+                self._graph[f"{src}", edge_type, f"{trg}"].train_link_gt = gts
+                self._graph[f"{src}", edge_type, f"{trg}"].train_types = torch.where(types == 1, self._r_to_idx[edge_type], len(self._r_set))
+
             else:
                 self._graph[f"{src}", edge_type, f"{trg}"].test_edge_index = e_idx
+                self._graph[f"{src}", edge_type, f"{trg}"].test_link_gt = gts
+                self._graph[f"{src}", edge_type, f"{trg}"].test_types = torch.where(types == 1, self._r_to_idx[edge_type], len(self._r_set))
+
 
     def _generate_adjency(self, edge_structure: Dict[Tuple[str,str,str], List[int,]]):
         for edge_type, nodes in edge_structure.items():
@@ -116,31 +126,39 @@ class ball_graph(Graph):
             index_len = len(nodes)
             if index_len < 2:
                 continue
-            src_idx = torch.arange(0, index_len, step=2, dtype=torch.int32)
-            trg_idx = torch.arange(1, index_len, step=2, dtype=torch.int32)
+            src_idx = torch.arange(0, index_len, step=3, dtype=torch.int32)
+            trg_idx = torch.arange(1, index_len, step=3, dtype=torch.int32)
+            gt_idx = torch.arange(2, index_len, step=3, dtype=torch.int32)
             
             tmp_tensor = torch.tensor(nodes).view(1,-1)
             srcs = torch.index_select(tmp_tensor, 1, src_idx)
             trgts = torch.index_select(tmp_tensor, 1, trg_idx)
-            edge_idx = torch.cat((srcs, trgts), 0).unique(dim=1)         
+            gts = torch.index_select(tmp_tensor, 1, gt_idx)
+            edge_idx = torch.cat((srcs, trgts), 0)      
         
-            yield edge_idx, srcs, trgts, edge_type, nodes
+            yield edge_idx, srcs, trgts, edge_type, nodes, gts
 
     def _map_edges(self, partition:str="all", subgraph:set={}) -> dict:
         structure = self._map_classes_structure(subgraph)
 
 
-        if partition == "all": edges = self._all_triples
-        elif partition == "train": edges = self._train_graph
-        else: edges = self._test_graph
+        if partition == "all": 
+            edges = self._all_triples
+            gt = self._all_link_gt
+        elif partition == "train":
+            edges = self._train_graph
+            gt = self._train_link_gt
+        else: 
+            edges = self._test_graph
+            gt = self._test_link_gt
 
         convert_s = self._nodes_to_idx
         convert_o = self._nodes_to_idx
 
-        for s,r,o in edges:
+        for (s,r,o), g in zip(edges, gt):
             s_idx, r_idx, o_idx = convert_s[s], self._r_to_idx[r], convert_o[o]
             if not structure.get(r, None) is None:
-                structure.get(r).extend([s_idx, o_idx])
+                structure.get(r).extend([s_idx, o_idx,g])
 
         return structure
 
@@ -221,8 +239,18 @@ class ball_graph(Graph):
 
     @staticmethod
     def read_data(path:Path) -> List[Tuple]:
-        tsv_file = pd.read_csv(path, delimiter='\t', names=["src", "rel", "trg"])
-        return [(str(s).strip(), '_'.join(x for x in str(r).strip().split("_") if not x.isnumeric() ).lower(), str(o).strip()) for idx, (s,r,o) in tsv_file.iterrows()]
+        tsv_file = pd.read_csv(path, delimiter='\t', names=["src", "rel", "trg", "link"])
+        t, lp = [],[]
+        for idx, (s,r,o,l) in tsv_file.iterrows():
+            s = str(s).strip()
+            r =  '_'.join(x for x in str(r).strip().split("_") if not x.isnumeric() ).lower()
+            o = str(o).strip()
+            
+            l = int(l)
+            t.append((s,r,o))
+            lp.append(l)
+            
+        return t, lp
 
 
     @property
